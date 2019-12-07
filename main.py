@@ -3,11 +3,14 @@ from lib.functions import *
 
 
 def main():
-    X, Xt, y, yt, predictors, score_categories, enc = preprocess_data(
+    X, Xt, y, yt, predictors, score_categories = preprocess_data(
         verbose=True,
-        onehot=True
+        upsample=True
     )
-    random_forest(X, Xt, y, yt, predictors, score_categories, enc)
+    # covariance_matrix(X.T, predictors[:-1])
+    bagging(X, Xt, y, yt)
+    random_forest(X, Xt, y, yt)
+    boosting(X, Xt, y, yt)
 
 
 if __name__=="__main__":

@@ -3,16 +3,22 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.metrics import confusion_matrix, roc_curve
-from sklearn.ensemble import AdaBoostClassifier, BaggingClassifier, \
-    RandomForestClassifier
 from imblearn.over_sampling import RandomOverSampler
+# Scikit-learn:
+from sklearn.model_selection import \
+    train_test_split, cross_val_score, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.metrics import confusion_matrix
+from sklearn.ensemble import \
+    GradientBoostingClassifier, BaggingClassifier, RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+# Global parameters
 np.random.seed(7)
+DATA_FOLDER = Path("data/")
+FIG_FOLDER = Path("fig/")
 
 
-def preprocess_data(verbose=False, onehot=False):
+def preprocess_data(verbose=True, upsample=True):
     """
     Read the data file of red wine quality, a data set with 1599 data points,
     11 features and one categorical outcome (wine quality scored 0-10). The
@@ -42,6 +48,10 @@ def preprocess_data(verbose=False, onehot=False):
     verbose : boolean
         Option to print a data set summary after preprocessing the data
 
+    upsample : boolean
+        Option to upsample training data to have equal amounts of Data
+        for each category.
+
     Returns
     -------
     X, Xt : arrays, shape(N, p)
@@ -54,11 +64,14 @@ def preprocess_data(verbose=False, onehot=False):
     predictors : list
         List of all 12 feature names (11 predictors + 1 response)
     """
-    folder = Path("data/")
-    df = pd.read_csv(folder / "winequality-red.csv", sep=";")
+    df = pd.read_csv(DATA_FOLDER / "winequality-red.csv", sep=";")
     X = df.loc[:, df.columns != "quality"].values
     y = df["quality"].values
     predictors = list(df) # list of all columns including response
+    for i,name in enumerate(predictors):
+        if len(name) > 11:
+            name = name[:9] + ".."
+            predictors[i] = name
     # Split of train and test set
     X, Xt, y, yt = train_test_split(X, y, test_size=0.33)
     # Scale both the train/test according to training set:
@@ -67,8 +80,9 @@ def preprocess_data(verbose=False, onehot=False):
     X = scl.transform(X)
     Xt = scl.transform(Xt)
     # Upscale so that the number of outputs in each class are equal
-    upscale = RandomOverSampler()
-    X, y = upscale.fit_resample(X, y.astype("int"))
+    if upsample:
+        upscale = RandomOverSampler()
+        X, y = upscale.fit_resample(X, y.astype("int"))
     # One hot encode the categorical outcome data
     # NOTE: It turns out that the data set only contains the categories
     # [3, 4, 5, 6, 7, 8] which are only 6 categories, instead of 11.
@@ -84,8 +98,6 @@ def preprocess_data(verbose=False, onehot=False):
         print("\tPredictor   | train mean | train std | test mean | test std")
         print("\t------------|------------|-----------|-----------|---------")
         for i,name in enumerate(predictors[:-1]): # exclude response (from list of names)
-            if len(name) > 11:
-                name = name[:9] + ".."
             print(f"\t{name:11.11} ", end="")
             print(f"| {np.mean(X[:,i]):10.2e} | {np.std(X[:,i]):9.2f} ", end="")
             print(f"| {np.mean(Xt[:,i]):9.2e} | {np.std(Xt[:,i]):8.2f}")
@@ -97,34 +109,86 @@ def preprocess_data(verbose=False, onehot=False):
             score = score_categories[i]
             ysum = np.sum(y_enc[:,i])
             ytsum = np.sum(yt_enc[:,i])
-            print(f"\t{score:}     | {int(ysum):15} | {int(ytsum):14}")
+            print(f"\t{score:1.1f}   | {int(ysum):15} | {int(ytsum):14}")
         print("\n")
-
-    if onehot:
-        return X, Xt, y_enc, yt_enc, predictors, score_categories, enc
-    else:
-        return X, Xt, y, yt, predictors, score_categories, enc
+    return X, Xt, y, yt, predictors, score_categories
 
 
-def random_forest(X, Xt, y, yt, predictors, score_categories, enc):
-    # Fit/predict
-    clf = RandomForestClassifier(n_estimators=500, max_features="sqrt")
+def covariance_matrix(X, predictors):
+    sigma = np.cov(X)
+    ax = plt.subplot(111)
+    ax.set_title(f"Covariance Matrix")
+    sns.heatmap(
+        sigma,
+        ax=ax,
+        vmin=-1.0,
+        vmax=1.0,
+        cmap="Blues",
+        xticklabels=predictors,
+        yticklabels=predictors
+    )
+    b, t = plt.ylim() # discover the values for bottom and top
+    plt.ylim(b+0.5, t-0.5)
+    plt.savefig(FIG_FOLDER / "cov_matrix.png")
+    plt.close()
+    return None
+
+
+def accuracy(clf, X, y, cv=5):
+    scores = cross_val_score(clf, X, y, cv=cv, scoring="accuracy")
+    acc = np.mean(scores)
+    return acc
+
+
+def plot_confusion_matrix(X, Xt, y, yt, clf):
     clf.fit(X, y)
     yp = clf.predict(Xt)
-    yt = enc.inverse_transform(yt)
-    yp = enc.inverse_transform(yp)
-    C = confusion_matrix(yt, yp, normalize="true")
-    plt.show()
+    C = confusion_matrix(yt, yp, normalize='true')
+    # Method and CV accuracy
+    method_name = type(clf).__name__
+    acc = accuracy(clf, X, y)
     # Plot
-    fig, ax = plt.subplots(1, 1)
+    ax = plt.subplot(111)
+    ax.set_title(method_name + f", accuracy = {acc:1.2f}")
     sns.heatmap(
         C,
         ax=ax,
         cmap="Blues",
         annot=True,
-        xticklabels=score_categories,
-        yticklabels=score_categories
+        xticklabels=range(3,9),
+        yticklabels=range(3,9),
+        square=True
     )
-    bottom, top = ax.get_ylim()
-    ax.set_ylim(bottom + 0.5, top - 0.5)
+    b, t = plt.ylim() # discover the values for bottom and top
+    b += 0.5 # Add 0.5 to the bottom
+    t -= 0.5 # Subtract 0.5 from the top
+    plt.ylim(b, t)
+    plt.xlabel("True Score")
+    plt.ylabel("Predicted Score")
     plt.show()
+
+
+def bagging(X, Xt, y, yt):
+    clf = BaggingClassifier(
+        n_estimators=500,
+        bootstrap=True,
+        n_jobs=-1,
+        oob_score=True
+    )
+    plot_confusion_matrix(X, Xt, y, yt, clf)
+
+
+def random_forest(X, Xt, y, yt):
+    clf = RandomForestClassifier(
+        n_estimators=500,
+        max_features="sqrt",
+        n_jobs=-1,
+    )
+    plot_confusion_matrix(X, Xt, y, yt, clf)
+
+
+def boosting(X, Xt, y, yt):
+    clf = GradientBoostingClassifier(
+        n_estimators=100
+    )
+    plot_confusion_matrix(X, Xt, y, yt, clf)
