@@ -4,8 +4,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from imblearn.over_sampling import RandomOverSampler
-
-# Scikit-learn:
 from sklearn.model_selection import (
     train_test_split,
     cross_val_score,
@@ -13,12 +11,12 @@ from sklearn.model_selection import (
 )
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.metrics import confusion_matrix
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import (
     GradientBoostingClassifier,
     BaggingClassifier,
     RandomForestClassifier,
 )
-from sklearn.tree import DecisionTreeClassifier
 
 # Global parameters
 np.random.seed(7)
@@ -195,13 +193,34 @@ def accuracy(clf, X, y, cv=5):
     return acc
 
 
+def score_wise_accuracy(yt, yp):
+    print("\tScore |  3   |  4   |  5   |  6   |  7   |  8   |\n\t", end="T=0.5 | ")
+    for i in range(3,9):
+        acc = np.sum(np.logical_and(yp == yt, yt == i)) / np.sum(yt == i)
+        print(f"{acc:1.2f}", end=" | ")
+    print("\n\tT=1.0 | ", end="")
+    for i in range(3,9):
+        acc = np.sum(np.logical_and(np.abs(yt-yp)<=1, yt == i)) / np.sum(yt == i)
+        print(f"{acc:1.2f}", end=" | ")
+    print("\n\n")
+    return acc
+
+
+def cross_validate(clf, X, y):
+    N, p = X.shape
+    step = int(0.2*N)
+    for i in range(5):
+        start = i*N*0.2
+        stop
+
 def plot_confusion_matrix(X, Xt, y, yt, clf):
+    acc = accuracy(clf, X, y)
     clf.fit(X, y)
     yp = clf.predict(Xt)
-    C = confusion_matrix(yt, yp, normalize="true")
+    score_wise_accuracy(yt, yp)
+    C = confusion_matrix(yt, yp) #, normalize="true")
     # Method and CV accuracy
     method_name = type(clf).__name__
-    acc = accuracy(clf, X, y)
     # Plot
     ax = plt.subplot(111)
     ax.set_title(method_name + f", accuracy = {acc:1.2f}")
@@ -210,6 +229,7 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
         ax=ax,
         cmap="Blues",
         annot=True,
+        fmt=",",
         xticklabels=range(3, 9),
         yticklabels=range(3, 9),
         square=True,
@@ -224,15 +244,18 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
 
 
 def bagging(X, Xt, y, yt):
+    print("Bagging\n-------")
     clf = BaggingClassifier(n_estimators=500, bootstrap=True, n_jobs=-1, oob_score=True)
     plot_confusion_matrix(X, Xt, y, yt, clf)
 
 
 def random_forest(X, Xt, y, yt):
+    print("Random Forest\n-------------")
     clf = RandomForestClassifier(n_estimators=500, max_features="sqrt", n_jobs=-1)
     plot_confusion_matrix(X, Xt, y, yt, clf)
 
 
 def boosting(X, Xt, y, yt):
+    print("Gradient Boosting\n-----------------")
     clf = GradientBoostingClassifier(n_estimators=100)
     plot_confusion_matrix(X, Xt, y, yt, clf)
