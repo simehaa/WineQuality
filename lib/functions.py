@@ -7,7 +7,7 @@ from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import (
     train_test_split,
     cross_val_score,
-    RandomizedSearchCV,
+    GridSearchCV,
 )
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.metrics import confusion_matrix
@@ -17,6 +17,7 @@ from sklearn.ensemble import (
     BaggingClassifier,
     RandomForestClassifier,
 )
+from tqdm import tqdm
 
 # Global parameters
 np.random.seed(7)
@@ -26,7 +27,7 @@ FIG_FOLDER = Path("fig/")
 
 def preprocess_data(verbose=True, upsample=True):
     """
-    Read the data file of red wine quality, a data set with 1599 data points,
+    Read the data file of red wine quality, a data set Randomizedwith 1599 data points,
     11 features and one categorical outcome (wine quality scored 0-10). The
     data set can be viewed as both a classification problem and a regression
     problem. Data set info:
@@ -206,13 +207,6 @@ def score_wise_accuracy(yt, yp):
     return acc
 
 
-def cross_validate(clf, X, y):
-    N, p = X.shape
-    step = int(0.2*N)
-    for i in range(5):
-        start = i*N*0.2
-        stop
-
 def plot_confusion_matrix(X, Xt, y, yt, clf):
     acc = accuracy(clf, X, y)
     clf.fit(X, y)
@@ -243,10 +237,43 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
     plt.show()
 
 
+def CV_n_estimators(clf, X, y, cv=5):
+    """
+    We only use the training data for validation, and therefore split X and y
+    into train and validation sets.
+    """
+    N, p = X.shape
+    step = int(N/cv)
+    n_arr = np.linspace(10, 1000, 100)
+    acc_arr = np.zeros(n_arr.shape)
+    for j,n in tqdm(enumerate(n_arr)):
+        clf.n_estimators = int(n)
+        acc = 0
+        for i in range(cv):
+            start = i*step
+            stop = (i+1)*step
+            Xtrain = np.concatenate((X[:start,:], X[stop:,:]), axis=0)
+            ytrain = np.concatenate((y[:start], y[stop:]))
+            Xtest = X[start:stop]
+            ytest = y[start:stop]
+            clf.fit(Xtrain, ytrain)
+            yp = clf.predict(Xtest)
+            acc += np.sum(yp == ytest)/(len(ytest)*cv)
+        acc_arr[j] = acc
+    plt.plot(n_arr, acc_arr)
+
+
 def bagging(X, Xt, y, yt):
     print("Bagging\n-------")
-    clf = BaggingClassifier(n_estimators=500, bootstrap=True, n_jobs=-1, oob_score=True)
-    plot_confusion_matrix(X, Xt, y, yt, clf)
+    clf = GridSearchCV(
+        BaggingClassifier(n_estimators=500, bootstrap=True, n_jobs=-1, oob_score=True),
+        param_grid={"n_estimators": range(100,1050,50)},
+        cv=5,
+        verbose=20
+    )
+    clf.fit(X, y)
+    print(clf.best_params_)
+
 
 
 def random_forest(X, Xt, y, yt):

@@ -10,8 +10,8 @@ def main():
     # correlation_matrix(X.T, predictors[:-1])
 
     bagging(X, Xt, y, yt)
-    random_forest(X, Xt, y, yt)
-    boosting(X, Xt, y, yt)
+    # random_forest(X, Xt, y, yt)
+    # boosting(X, Xt, y, yt)
 
 
 if __name__ == "__main__":
