@@ -9,8 +9,8 @@ def main():
     # plot_histogram(original_y, score_categories)
     # correlation_matrix(X.T, predictors[:-1])
 
-    bagging(X, Xt, y, yt)
-    # random_forest(X, Xt, y, yt)
+    # bagging(X, Xt, y, yt)
+    random_forest(X, Xt, y, yt)
     # boosting(X, Xt, y, yt)
 
 
