@@ -4,13 +4,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
 from imblearn.over_sampling import RandomOverSampler
-from sklearn.model_selection import (
-    train_test_split,
-    cross_val_score,
-    GridSearchCV,
-)
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import (
     GradientBoostingClassifier,
@@ -87,7 +83,7 @@ def preprocess_data(verbose=True, upsample=True):
         "[g/l]",
         "",
         "[g(potassium sulphate)/l]",
-        "[vol.\%]"
+        "[vol.\%]",
     ]
     print("\n\t------------------ TABLE 1: raw X data summary ------------------")
     print("\tPredictor & Min & Max & Mean \\\\\\hline")
@@ -165,8 +161,8 @@ def plot_histogram(y, scores):
     return None
 
 
-def correlation_matrix(X, predictors):
-    sigma = np.corrcoef(X)
+def correlation_matrix(X, y, predictors):
+    sigma = np.corrcoef(np.concatenate((X, y.reshape(-1, 1)), axis=1).T)
     ax = plt.subplot(111)
     ax.set_title(f"Correlation Matrix")
     map = sns.heatmap(
@@ -175,7 +171,9 @@ def correlation_matrix(X, predictors):
         vmin=-1.0,
         vmax=1.0,
         cmap="BrBG",
-        cbar_kws={"ticks": [-1, -0.5, 0, 0.5, 1]},
+        cbar_kws={"ticks": np.linspace(-1, 1, 5)},
+        annot=True,
+        fmt="1.1f",
         xticklabels=predictors,
         yticklabels=predictors,
     )
@@ -196,12 +194,12 @@ def accuracy(clf, X, y, cv=5):
 
 def score_wise_accuracy(yt, yp):
     print("\tScore |  3   |  4   |  5   |  6   |  7   |  8   |\n\t", end="T=0.5 | ")
-    for i in range(3,9):
+    for i in range(3, 9):
         acc = np.sum(np.logical_and(yp == yt, yt == i)) / np.sum(yt == i)
         print(f"{acc:1.2f}", end=" | ")
     print("\n\tT=1.0 | ", end="")
-    for i in range(3,9):
-        acc = np.sum(np.logical_and(np.abs(yt-yp)<=1, yt == i)) / np.sum(yt == i)
+    for i in range(3, 9):
+        acc = np.sum(np.logical_and(np.abs(yt - yp) <= 1, yt == i)) / np.sum(yt == i)
         print(f"{acc:1.2f}", end=" | ")
     print("\n\n")
     return acc
@@ -210,18 +208,22 @@ def score_wise_accuracy(yt, yp):
 def plot_confusion_matrix(X, Xt, y, yt, clf):
     clf.fit(X, y)
     yp = clf.predict(Xt)
-    score_wise_accuracy(yt, yp)
-    C = confusion_matrix(yt, yp) #, normalize="true")
-    # Plot
-    ax = plt.subplot(111)
-    title = type(clf.base_estimator_).__name__
-    title += f", Accuracy = {100 * np.sum(yp == yt) / len(yt):1.2f} %\n"
+    # Prints
+    methodstr = type(clf.estimator).__name__
+    f1 = f1_score(yt, yp, average="weighted")
+    print("\t" + methodstr)
+    print("\t" + "-"*len(methodstr))
+    print(f"\tf1_score = {f1:1.2f}")
+    print(f"\tAccuracy = {(100 * np.sum(yp == yt) / len(yt)):1.2f} %")
     for key in clf.best_params_:
         val = clf.best_params_[key]
-        title += f"{key} = {val:,}, "
-    ax.set_title(title[:-2])
+        print(f"\t{key} = {val:,}")
+    score_wise_accuracy(yt, yp)
+    # Plot
+    ax = plt.subplot(111)
+    ax.set_title(methodstr)
     sns.heatmap(
-        C,
+        confusion_matrix(yt, yp),
         ax=ax,
         cmap="Blues",
         annot=True,
@@ -234,30 +236,61 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
     b += 0.5  # Add 0.5 to the bottom
     t -= 0.5  # Subtract 0.5 from the top
     plt.ylim(b, t)
-    plt.xlabel("True Score")
-    plt.ylabel("Predicted Score")
-    plt.show()
+    plt.ylabel("True Score")
+    plt.xlabel("Predicted Score")
+    fn = methodstr + "_confusion_matrix.png"
+    plt.savefig(FIG_FOLDER / fn)
+    plt.close()
+    return None
+
+
+def plot_feature_importances(X, y, clf, predictors):
+    clf.fit(X, y)
+    # Extract feature importance from sklearn
+    feat_importance = clf.feature_importances_
+    # Sort
+    perm = np.argsort(feat_importance)[::-1]
+    sorted_predictors = []
+    sorted_imporances = feat_importance[perm]
+    for p in perm:
+        sorted_predictors.append(predictors[p])
+    # Plot
+    methodstr = type(clf).__name__
+    plt.title(methodstr)
+    sns.barplot(sorted_imporances, sorted_predictors)
+    plt.xlabel("Relative Importance")
+    plt.grid()
+    fn = methodstr + "_feature_importance.png"
+    plt.savefig(FIG_FOLDER / fn)
+    plt.close()
+    return None
 
 
 def bagging(X, Xt, y, yt):
     print("Bagging\n-------")
     clf = GridSearchCV(
         BaggingClassifier(n_estimators=500, bootstrap=True, oob_score=True),
-        param_grid={
-            "n_estimators": range(100,1050,50)
-        },
+        param_grid={"n_estimators": range(100, 1600, 100)},
         cv=5,
         verbose=3,
-        n_jobs=-1
+        n_jobs=-1,
+        scoring="balanced_accuracy"
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
     """
-    [Parallel(n_jobs=1)]: Done  95 out of  95 | elapsed:  4.5min finished
-    {'n_estimators': 250}
     [Parallel(n_jobs=-1)]: Done  95 out of  95 | elapsed:  1.1min finished
         Score |  3   |  4   |  5   |  6   |  7   |  8   |
-        T=0.5 | 0.00 | 0.13 | 0.70 | 0.66 | 0.58 | 0.20 |
-        T=1.0 | 0.00 | 0.74 | 0.95 | 0.95 | 0.98 | 0.60 |
+        T=0.5 | 0.00 | 0.13 | 0.69 | 0.67 | 0.56 | 0.20 |
+        T=1.0 | 0.00 | 0.74 | 0.95 | 0.95 | 0.97 | 0.60 |
+    [Parallel(n_jobs=-1)]: Done  75 out of  75 | elapsed:   51.1s finished
+        BaggingClassifier
+        -----------------
+        f1_score = 0.66
+        Accuracy = 67.61 %
+        n_estimators = 1,000
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.04 | 0.79 | 0.69 | 0.55 | 0.20 |
+        T=1.0 | 0.00 | 0.74 | 0.98 | 1.00 | 0.97 | 0.60 | 
     """
 
 
@@ -266,26 +299,57 @@ def random_forest(X, Xt, y, yt):
     clf = GridSearchCV(
         RandomForestClassifier(),
         param_grid={
-            "n_estimators": range(100,1100,100),
-            "max_features": range(1,11,1)
+            "n_estimators": range(100, 1100, 100),
+            "max_features": range(1, 11, 1),
         },
         cv=5,
         verbose=3,
-        n_jobs=-1
+        n_jobs=-1,
+        scoring="balanced_accuracy"
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
+    """
+    [Parallel(n_jobs=-1)]: Done 500 out of 500 | elapsed:  3.5min finished
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.00 | 0.76 | 0.69 | 0.47 | 0.20 |
+        T=1.0 | 0.00 | 0.70 | 0.98 | 1.00 | 0.98 | 0.60 |
+    [Parallel(n_jobs=-1)]: Done 500 out of 500 | elapsed:  2.4min finished
+        RandomForestClassifier
+        ----------------------
+        f1_score = 0.65
+        Accuracy = 66.48 %
+        max_features = 9
+        n_estimators = 100
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.00 | 0.78 | 0.68 | 0.53 | 0.20 |
+        T=1.0 | 0.00 | 0.70 | 0.98 | 1.00 | 0.97 | 0.60 |
+    """
 
 
 def boosting(X, Xt, y, yt):
     print("Gradient Boosting\n-----------------")
     clf = GridSearchCV(
-        GradientBoostingClassifier(n_estimators=100),
+        GradientBoostingClassifier(max_leaf_nodes=6),
         param_grid={
-            "n_estimators": range(100,1100,100),
-            "max_features": range(1,11,1)
+            "learning_rate": [0.01,0.05,0.1],
+            "n_estimators": range(100, 2000, 100),
         },
         cv=5,
         verbose=3,
-        n_jobs=-1
+        n_jobs=-1,
+        scoring="balanced_accuracy"
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
+    """
+    [Parallel(n_jobs=-1)]: Done 285 out of 285 | elapsed:  7.6min finished
+    GradientBoostingClassifier
+    --------------------------
+    f1_score = 0.62
+    Accuracy = 62.50 %
+    learning_rate = 0.1
+    n_estimators = 100
+    Score |  3   |  4   |  5   |  6   |  7   |  8   |
+    T=0.5 | 0.00 | 0.09 | 0.73 | 0.64 | 0.45 | 0.20 |
+    T=1.0 | 0.00 | 0.65 | 0.96 | 0.97 | 0.98 | 0.60 |
+
+    """
