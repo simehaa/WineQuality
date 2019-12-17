@@ -68,6 +68,26 @@ def preprocess_data(verbose=True, upsample=True):
         List of all 12 feature names (11 predictors + 1 response)
     """
     df = pd.read_csv(DATA_FOLDER / "winequality-red.csv", sep=";")
+    goodWines = df.loc[df["quality"] == 8]
+    badWines = df.loc[df["quality"] == 3]
+    if verbose:
+        goodVolatileAcidity = goodWines["volatile acidity"]
+        badVolatileAcidity = badWines["volatile acidity"]
+        goodAlcohol = goodWines["alcohol"]
+        badAlcohol = badWines["alcohol"]
+        goodSulphates = goodWines["sulphates"]
+        badSulphates = badWines["sulphates"]
+        print(f"\n\t---------- Table 0: three most import predictors ----------")
+        print(f"\t Quality | Volatile Acidity |     Alcohol    |  Sulphates  ")
+        print(f"\t       8 |", end=" ")
+        print(f"{np.mean(goodVolatileAcidity):1.2f} +/- {np.std(goodVolatileAcidity):1.2f}    |", end="")
+        print(f"\t{np.mean(goodAlcohol):1.1f} +/- {np.std(goodAlcohol):1.1f} |", end="")
+        print(f"\t{np.mean(goodSulphates):1.1f} +/- {np.std(goodSulphates):1.1f} ")
+        print(f"\t       3 |", end=" ")
+        print(f"{np.mean(badVolatileAcidity):1.2f} +/- {np.std(badVolatileAcidity):1.2f}    |", end="")
+        print(f"\t{np.mean(badAlcohol):1.1f} +/- {np.std(badAlcohol):1.1f} |", end="")
+        print(f"\t{np.mean(badSulphates):1.1f} +/- {np.std(badSulphates):1.1f} ", end="\n\n")
+
     X = df.loc[:, df.columns != "quality"].values
     y = df["quality"].values
     original_y = y
@@ -212,7 +232,7 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
     methodstr = type(clf.estimator).__name__
     f1 = f1_score(yt, yp, average="weighted")
     print("\t" + methodstr)
-    print("\t" + "-"*len(methodstr))
+    print("\t" + "-" * len(methodstr))
     print(f"\tf1_score = {f1:1.2f}")
     print(f"\tAccuracy = {(100 * np.sum(yp == yt) / len(yt)):1.2f} %")
     for key in clf.best_params_:
@@ -238,7 +258,7 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
     plt.ylim(b, t)
     plt.ylabel("True Score")
     plt.xlabel("Predicted Score")
-    fn = methodstr + "_confusion_matrix.png"
+    fn = methodstr + "_confusion_matrix_upsampled.png"
     plt.savefig(FIG_FOLDER / fn)
     plt.close()
     return None
@@ -246,20 +266,18 @@ def plot_confusion_matrix(X, Xt, y, yt, clf):
 
 def plot_feature_importances(X, y, clf, predictors):
     clf.fit(X, y)
-    # Extract feature importance from sklearn
-    feat_importance = clf.feature_importances_
-    # Sort
-    perm = np.argsort(feat_importance)[::-1]
-    sorted_predictors = []
-    sorted_imporances = feat_importance[perm]
-    for p in perm:
-        sorted_predictors.append(predictors[p])
+    df = pd.DataFrame((clf.feature_importances_).reshape(1, -1), columns=predictors)
+    df_sorted = df.sort_values(by=0, axis=1)
     # Plot
     methodstr = type(clf).__name__
-    plt.title(methodstr)
-    sns.barplot(sorted_imporances, sorted_predictors)
-    plt.xlabel("Relative Importance")
+    ax = plt.subplot(111)
+    ax.set_title(methodstr)
+    sns.barplot(data=df_sorted)
+    plt.ylabel("Relative Importance")
+    ax.set_xticklabels(df_sorted.columns, rotation=45, ha="right")
+    ax.set_ylim(top=0.28)
     plt.grid()
+    plt.tight_layout(pad=0.4, h_pad=1.0)
     fn = methodstr + "_feature_importance.png"
     plt.savefig(FIG_FOLDER / fn)
     plt.close()
@@ -274,14 +292,11 @@ def bagging(X, Xt, y, yt):
         cv=5,
         verbose=3,
         n_jobs=-1,
-        scoring="balanced_accuracy"
+        scoring="balanced_accuracy",
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
+    # Terminal prints from two runs
     """
-    [Parallel(n_jobs=-1)]: Done  95 out of  95 | elapsed:  1.1min finished
-        Score |  3   |  4   |  5   |  6   |  7   |  8   |
-        T=0.5 | 0.00 | 0.13 | 0.69 | 0.67 | 0.56 | 0.20 |
-        T=1.0 | 0.00 | 0.74 | 0.95 | 0.95 | 0.97 | 0.60 |
     [Parallel(n_jobs=-1)]: Done  75 out of  75 | elapsed:   51.1s finished
         BaggingClassifier
         -----------------
@@ -290,7 +305,18 @@ def bagging(X, Xt, y, yt):
         n_estimators = 1,000
         Score |  3   |  4   |  5   |  6   |  7   |  8   |
         T=0.5 | 0.00 | 0.04 | 0.79 | 0.69 | 0.55 | 0.20 |
-        T=1.0 | 0.00 | 0.74 | 0.98 | 1.00 | 0.97 | 0.60 | 
+        T=1.0 | 0.00 | 0.74 | 0.98 | 1.00 | 0.97 | 0.60 |
+
+    UPSAMPLED
+    [Parallel(n_jobs=-1)]: Done  75 out of  75 | elapsed:  1.2min finished
+        BaggingClassifier
+        -----------------
+        f1_score = 0.64
+        Accuracy = 64.77 %
+        n_estimators = 800
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.05 | 0.79 | 0.62 | 0.53 | 0.12 |
+        T=1.0 | 1.00 | 0.76 | 0.99 | 0.97 | 0.95 | 0.50 |
     """
 
 
@@ -305,14 +331,11 @@ def random_forest(X, Xt, y, yt):
         cv=5,
         verbose=3,
         n_jobs=-1,
-        scoring="balanced_accuracy"
+        scoring="balanced_accuracy",
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
+    # Terminal prints from two runs
     """
-    [Parallel(n_jobs=-1)]: Done 500 out of 500 | elapsed:  3.5min finished
-        Score |  3   |  4   |  5   |  6   |  7   |  8   |
-        T=0.5 | 0.00 | 0.00 | 0.76 | 0.69 | 0.47 | 0.20 |
-        T=1.0 | 0.00 | 0.70 | 0.98 | 1.00 | 0.98 | 0.60 |
     [Parallel(n_jobs=-1)]: Done 500 out of 500 | elapsed:  2.4min finished
         RandomForestClassifier
         ----------------------
@@ -323,6 +346,18 @@ def random_forest(X, Xt, y, yt):
         Score |  3   |  4   |  5   |  6   |  7   |  8   |
         T=0.5 | 0.00 | 0.00 | 0.78 | 0.68 | 0.53 | 0.20 |
         T=1.0 | 0.00 | 0.70 | 0.98 | 1.00 | 0.97 | 0.60 |
+
+    UPSAMPLED
+    [Parallel(n_jobs=-1)]: Done 500 out of 500 | elapsed:  3.2min finished
+        RandomForestClassifier
+        ----------------------
+        f1_score = 0.65
+        Accuracy = 66.86 %
+        max_features = 1
+        n_estimators = 100
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.00 | 0.80 | 0.69 | 0.49 | 0.12 |
+        T=1.0 | 0.33 | 0.76 | 1.00 | 0.99 | 0.99 | 0.62 |
     """
 
 
@@ -331,25 +366,37 @@ def boosting(X, Xt, y, yt):
     clf = GridSearchCV(
         GradientBoostingClassifier(max_leaf_nodes=6),
         param_grid={
-            "learning_rate": [0.01,0.05,0.1],
-            "n_estimators": range(100, 2000, 100),
+            "learning_rate": [0.05, 0.1, 0.15, 0.2],
+            "n_estimators": range(100, 2100, 100),
         },
         cv=5,
         verbose=3,
         n_jobs=-1,
-        scoring="balanced_accuracy"
+        scoring="balanced_accuracy",
     )
     plot_confusion_matrix(X, Xt, y, yt, clf)
+    # Terminal prints from two runs
     """
-    [Parallel(n_jobs=-1)]: Done 285 out of 285 | elapsed:  7.6min finished
+    [Parallel(n_jobs=-1)]: Done 380 out of 380 | elapsed:  5.4min finished
     GradientBoostingClassifier
-    --------------------------
-    f1_score = 0.62
-    Accuracy = 62.50 %
-    learning_rate = 0.1
-    n_estimators = 100
-    Score |  3   |  4   |  5   |  6   |  7   |  8   |
-    T=0.5 | 0.00 | 0.09 | 0.73 | 0.64 | 0.45 | 0.20 |
-    T=1.0 | 0.00 | 0.65 | 0.96 | 0.97 | 0.98 | 0.60 |
+        --------------------------
+        f1_score = 0.64
+        Accuracy = 64.96 %
+        learning_rate = 0.15
+        n_estimators = 200
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.13 | 0.73 | 0.68 | 0.50 | 0.20 |
+        T=1.0 | 0.00 | 0.61 | 0.96 | 0.97 | 0.97 | 0.60 |
 
+    UPSAMPLED
+    [Parallel(n_jobs=-1)]: Done 400 out of 400 | elapsed: 10.8min finished
+        GradientBoostingClassifier
+        --------------------------
+        f1_score = 0.64
+        Accuracy = 64.39 %
+        learning_rate = 0.2
+        n_estimators = 200
+        Score |  3   |  4   |  5   |  6   |  7   |  8   |
+        T=0.5 | 0.00 | 0.00 | 0.72 | 0.68 | 0.57 | 0.12 |
+        T=1.0 | 0.33 | 0.76 | 0.99 | 0.97 | 0.93 | 0.75 |
     """
